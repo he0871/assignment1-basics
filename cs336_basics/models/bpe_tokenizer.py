@@ -1,4 +1,5 @@
 import regex as re
+from collections.abc import Iterable
 
 class BPETokenizer:
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
@@ -43,19 +44,10 @@ class BPETokenizer:
 
         return bytes_list
 
-    def __encode(self, text: str, pos:int) -> list[int]:
+    def __encode(self, text: str) -> list[int]:
         bytes_list = [bytes([b]) for b in text.encode("utf-8")]
         output = []
         # skip format characters at the beginning
-        if pos == 0:
-            i = 0
-            while i < len(bytes_list):
-                if bytes_list[i] in self.format_ch:
-                    output.append(self.encoder[bytes_list[i]])
-                    i += 1
-                else:
-                    break
-            bytes_list = bytes_list[i:]
         # merge bytes_list
         while True:
             merged = self.__merge(bytes_list)
@@ -65,37 +57,38 @@ class BPETokenizer:
         #print(f"input: {text}, output: {output + [self.encoder[token] for token in bytes_list]}")
         return output + [self.encoder[token] for token in bytes_list]
                 
-
     def encode(self, text: str) -> list[int]:
         output = []
         curr = 0
         #print(f"text: {text}")
-        pos = 0
         if self.pattern:
             # split text by special tokens
             for match in re.finditer(self.pattern, text):
                 #print(f"match: {match.start()}, {match.end()}, {match.group()}")
                 pre_token = text[curr:match.start()]
                 # pre-tokenize the text
-                idx = 0
+
                 for pt_match in re.finditer(self.pre_tokenizer, pre_token):
                     #print(f"pt_match: {pt_match.start()}, {pt_match.end()}, {pt_match.group()}")
                     #output += self.__encode(pre_token[idx:pt_match.start()], pos)
-                    output += self.__encode(pt_match.group(), pos)
+                    output += self.__encode(pt_match.group())
                     #print(f"output: {output}")
-                    if len(output) > 0:
-                        pos += 1
-                    idx = pt_match.end()
                 special_token = match.group()
                 output += [self.encoder[special_token.encode("utf-8")]]
                 curr = match.end()
-                #pos += 1
-            output += self.__encode(text[curr:], pos)
+            # tail 
+            for pt_match in re.finditer(self.pre_tokenizer, text[curr:]):
+                output += self.__encode(pt_match.group())
+            #output += self.__encode(text[curr:])
         else:
-            output = self.__encode(text, pos)
+            output = self.__encode(text)
         
         #print(f"output: {output}")
         return output
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterable[list[int]]:
+        for text in iterable:
+            yield from self.encode(text)
 
 
     def decode(self, ids: list[int]) -> str:

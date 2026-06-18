@@ -14,6 +14,7 @@ import cs336_basics.models.transformer as transformer
 import cs336_basics.models.worker as worker
 import cs336_basics.models.AdamW as AdamW
 import cs336_basics.models.bpe_tokenizer as bpe_tokenizer
+import cs336_basics.models.train_bpe as train_bpe
 
 def run_linear(
     d_in: int,
@@ -594,4 +595,4 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    raise NotImplementedError
+    return train_bpe.train_bpe(input_path, vocab_size, special_tokens)
