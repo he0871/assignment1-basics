@@ -12,7 +12,7 @@ def pre_tokenize_worker(chunk: str, special_tokens: list[str]) -> {tuple:int}:
     for match in re.finditer(pre_tokenizer, chunk):
         word = match.group()
         if word not in special_tokens:
-            word_freq[word] += 1
+            word_freq[tuple(bytes([b]) for b in word.encode("utf-8"))] += 1
     return word_freq
 
 def get_pair_counts(word_freqs):
@@ -56,12 +56,12 @@ def train_bpe(
     initial_vocab_size = 256 + len(special_tokens)
     num_merges = vocab_size - initial_vocab_size
     word_freqs = Counter()
-    n_chunks = 4
+    chunk_size = 1024
     tasks = []
     with open(input_path, "rb") as f:
-        boundaries = pretokenization.find_chunk_boundaries(f, n_chunks, b"<|endoftext|>")
+        ranges = pretokenization.find_chunk_boundaries(f, chunk_size, b"<|endoftext|>", pre_tokenizer)
          
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
+        for start, end in ranges:
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
             tasks.append((chunk, special_tokens))
@@ -75,7 +75,11 @@ def train_bpe(
 
     pair_counts = get_pair_counts(word_freqs)
 
-    vocab = {}
+    vocab: dict[int, bytes] = {
+        i: bytes([i])
+        for i in range(0,256)
+    }
+    vocab[256] = b"<|endoftext|>"
     merges = []
     while len(merges) < num_merges:
         pair_counts = get_pair_counts(word_freqs)
@@ -83,7 +87,8 @@ def train_bpe(
         if not pair_counts:
             break
 
-        best_pair = max(pair_counts, key=pair_counts.get)
+        best_pair =  max( pair_counts.items(),key=lambda item: (item[1], item[0]))[0]
+
         merges.append(best_pair)
         vocab[len(vocab)] = best_pair[0] + best_pair[1]
         word_freqs = apply_merge(word_freqs, best_pair)
