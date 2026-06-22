@@ -1,88 +1,38 @@
 import os
 from typing import BinaryIO
-
 import regex as re
 
 def find_chunk_boundaries(
     file: BinaryIO,
     chunk_size: int,
     split_special_token: bytes,
-    pre_tokenizer: str,
-) -> list[tuple[int, int]]:
+) -> list[int]:
     """
-    Return byte ranges [start, end).
-
-    Logic:
-    1. Split file by special token.
-    2. Exclude special tokens from output chunks.
-    3. Inside each segment, split by GPT-2-style pre-tokenizer.
-    4. Pack complete pre-tokens into chunks up to chunk_size.
-       If next word does not fit, start a new chunk.
+    Chunk the file into parts that can be counted independently.
+    May return fewer chunks if the boundaries end up overlapping.
     """
-    assert isinstance(split_special_token, bytes)
-    assert chunk_size > 0
-
+    assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
+    PAT = rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    # Get total file size in bytes
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
 
-    text = file.read().decode("utf-8", errors="ignore")
-    special = split_special_token.decode("utf-8")
+    chunk_boundaries = [0, file_size]
+    current_position = 0
 
-    ranges: list[tuple[int, int]] = []
-
-    byte_pos = 0
-
-    for segment in text.split(special):
-        segment_bytes = segment.encode("utf-8")
-        segment_start = byte_pos
-        segment_end = segment_start + len(segment_bytes)
-
-        _add_pretoken_chunks(
-            ranges=ranges,
-            segment=segment,
-            segment_start=segment_start,
-            chunk_size=chunk_size,
-            pre_tokenizer=pre_tokenizer,
-        )
-
-        # move past segment + special token
-        byte_pos = segment_end + len(split_special_token)
-
-    return ranges
-
-
-def _add_pretoken_chunks(
-    ranges: list[tuple[int, int]],
-    segment: str,
-    segment_start: int,
-    chunk_size: int,
-    pre_tokenizer: str,
-) -> None:
-    curr_start: int | None = None
-    curr_end: int | None = None
-
-    for match in re.finditer(pre_tokenizer, segment):
-        token = match.group()
-
-        token_start = segment_start + len(segment[: match.start()].encode("utf-8"))
-        token_end = segment_start + len(segment[: match.end()].encode("utf-8"))
-        token_size = token_end - token_start
-
-        if curr_start is None:
-            curr_start = token_start
-            curr_end = token_end
-            continue
-
-        assert curr_end is not None
-
-        # If next pre-token does not fit, close current chunk.
-        if token_end - curr_start > chunk_size:
-            ranges.append((curr_start, curr_end))
-            curr_start = token_start
-            curr_end = token_end
+    while True:
+        chunk = file.read(chunk_size)
+        if chunk == b"":
+            break
+        found_at = chunk.find(split_special_token)
+        if found_at != -1:
+            chunk_boundaries.insert(-1, current_position + found_at)
         else:
-            curr_end = token_end
+            matches = list(re.finditer(PAT, chunk))
+            if matches:
+                chunk_boundaries.insert(-1, current_position + matches[-2].end())
 
-    if curr_start is not None and curr_end is not None:
-        ranges.append((curr_start, curr_end))
+        current_position += len(chunk) 
+    # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
+    return sorted(set(chunk_boundaries))
