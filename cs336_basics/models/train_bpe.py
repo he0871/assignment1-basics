@@ -26,13 +26,19 @@ def get_pair_counts(word_freqs):
 
     return pair_counts
 
-def merge_word(word: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> tuple[bytes, ...]:
+def __merge_word(word: tuple[bytes, ...], pair: tuple[bytes, bytes], freq: int, pair_counts: Counter) -> tuple[bytes, ...]:
     merged = []
     i = 0
-
+    del pair_counts[pair]
     while i < len(word):
         if i + 1 < len(word) and (word[i], word[i + 1]) == pair:
             merged.append(word[i] + word[i + 1])
+            if i + 2 < len(word):
+                pair_counts[(word[i]+ word[i + 1], word[i + 2])] += freq
+                pair_counts[(word[i+1], word[i + 2])] -= freq
+            if i > 0:
+                pair_counts[(word[i-1], word[i] + word[i + 1])] += freq
+                pair_counts[(word[i-1], word[i])] -= freq
             i += 2
         else:
             merged.append(word[i])
@@ -40,11 +46,11 @@ def merge_word(word: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> tuple[byte
 
     return tuple(merged)
 
-def apply_merge(word_freq, pair):
+def apply_merge(word_freq, pair, pair_counts):
     new_word_freq = Counter()
 
     for word, freq in word_freq.items():
-        new_word = merge_word(word, pair)
+        new_word = __merge_word(word, pair, freq, pair_counts)
         new_word_freq[new_word] += freq
 
     return new_word_freq
@@ -92,9 +98,12 @@ def train_bpe(
 
     print(f"total_counter len: {len(total_counter)}")
     word_freqs.update(total_counter)
+    #print(f"word_freqs sample: {list(word_freqs.items())[:2]}")
 
     pair_counts = get_pair_counts(word_freqs)
-    #print(f"pair_counts: {pair_counts}")
+    #print(f"pair_counts[:2]: {list(pair_counts.items())[:2]}")
+    #best_pair =  max( pair_counts.items(),key=lambda item: (item[1], item[0]))[0]
+    #print(f"best_pair: {best_pair}")
 
     vocab: dict[int, bytes] = {
         i: bytes([i])
@@ -103,7 +112,7 @@ def train_bpe(
     vocab[256] = b"<|endoftext|>"
     merges = []
     while len(merges) < num_merges:
-        pair_counts = get_pair_counts(word_freqs)
+        #pair_counts = get_pair_counts(word_freqs)
         
 
         if not pair_counts:
@@ -114,7 +123,7 @@ def train_bpe(
 
         merges.append(best_pair)
         vocab[len(vocab)] = best_pair[0] + best_pair[1]
-        word_freqs = apply_merge(word_freqs, best_pair)
+        word_freqs = apply_merge(word_freqs, best_pair, pair_counts)
 
     return vocab, merges
          
