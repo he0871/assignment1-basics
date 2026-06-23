@@ -49,6 +49,22 @@ def apply_merge(word_freq, pair):
 
     return new_word_freq
 
+def __iter_chunks(input_path, boundaries, special_tokens_bytes):
+    with open(input_path, "rb") as f:
+        pt = 0
+        for idx in boundaries:
+            f.seek(pt)
+            #print(f"pt: {pt}, idx: {idx}")
+            chunk = f.read(idx - pt)
+            if chunk:
+                yield (chunk, special_tokens_bytes)
+            pt = idx
+
+def __pre_tokenize_worker_star(args):
+    #print(f"args: {args}")
+    chunk, special_tokens_bytes = args
+    return pre_tokenize_worker(chunk, special_tokens_bytes)
+
 def train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
@@ -59,27 +75,23 @@ def train_bpe(
     num_merges = vocab_size - initial_vocab_size
     special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
     word_freqs = Counter()
-    chunk_szie = 40960
-    tasks = []
+    chunk_szie = 409600
+
+    total_counter = Counter()
     with open(input_path, "rb") as f:
         boundaries = pretokenization.find_chunk_boundaries(f, chunk_szie, b"<|endoftext|>")
-        #print(f"boundaries: {boundaries}")
-        f.seek(0)
-        pt = 0
-        for idx in boundaries:
-            chunk = f.read(idx - pt)
-            #print(f"idx: {idx}, pt: {pt}")
-            #print(f"f.tell(): {f.tell()}")
-            #print(f"chunk: {chunk}")
-            tasks.append((chunk, special_tokens_bytes))
-            pt = idx
-    
-    print(f"tasks len: {len(tasks)}")
+ 
     with Pool() as pool:
-        counters = pool.starmap(pre_tokenize_worker, tasks)
+        counters = pool.imap_unordered(
+            __pre_tokenize_worker_star,
+            __iter_chunks(input_path, boundaries, special_tokens_bytes),
+            chunksize=2,
+        )
+        for counter in counters:
+            total_counter.update(counter)
 
-    for counter in counters:
-        word_freqs.update(counter)
+    print(f"total_counter len: {len(total_counter)}")
+    word_freqs.update(total_counter)
 
     pair_counts = get_pair_counts(word_freqs)
     #print(f"pair_counts: {pair_counts}")

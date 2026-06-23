@@ -30,7 +30,7 @@ def find_chunk_boundaries(
             chunk_boundaries.insert(-1, current_position + found_at)
         else:
             matches = list(re.finditer(PAT, chunk))
-            if matches:
+            if matches and len(matches) > 1:
                 chunk_boundaries.insert(-1, current_position + matches[-2].end())
 
         current_position += len(chunk) 
