@@ -52,7 +52,7 @@ py-spy record -o profile.svg --pid <PID>
 py-spy record --subprocesses -o profile.svg -- uv run pytest tests/test_tokenizer.py
 ```
 
-sudo py-spy record --subprocesses -o profile.svg -- python cs336_basics/experiments/train_10k_tinyStories.py
+`sudo py-spy record --subprocesses -o profile.svg -- python cs336_basics/experiments/train_10k_tinyStories.py`
 
 # Optimizer
 
@@ -84,3 +84,43 @@ sudo py-spy record --subprocesses -o profile.svg -- python cs336_basics/experime
         vocab[len(vocab)] = best_pair[0] + best_pair[1]
         word_freqs = apply_merge(word_freqs, best_pair)
 ```
+
+
+## after optimizer word_frequcy counter 
+
+
+```python
+def __merge_word(word: tuple[bytes, ...], pair: tuple[bytes, bytes], freq: int, pair_counts: Counter) -> tuple[bytes, ...]:
+    merged = []
+    i = 0
+    del pair_counts[pair]
+    while i < len(word):
+        if i + 1 < len(word) and (word[i], word[i + 1]) == pair:
+            merged.append(word[i] + word[i + 1])
+            if i + 2 < len(word):
+                pair_counts[(word[i]+ word[i + 1], word[i + 2])] += freq
+                pair_counts[(word[i+1], word[i + 2])] -= freq
+            if i > 0:
+                pair_counts[(word[i-1], word[i] + word[i + 1])] += freq
+                pair_counts[(word[i-1], word[i])] -= freq
+            i += 2
+        else:
+            merged.append(word[i])
+            i += 1
+
+    return tuple(merged)
+
+def apply_merge(word_freq, pair, pair_counts):
+    new_word_freq = Counter()
+
+    for word, freq in word_freq.items():
+        new_word = __merge_word(word, pair, freq, pair_counts)
+        new_word_freq[new_word] += freq
+
+    return new_word_freq
+```
+
+~ 6min
+
+Merge loop (main proc) --> 21%
+Pretokenization (workers) --> ~38% combined across 10 workers

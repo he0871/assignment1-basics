@@ -4,7 +4,7 @@ import os
 
 from collections import Counter
 from multiprocessing import Pool
-
+import time
 pre_tokenizer = rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
 
@@ -17,17 +17,25 @@ def pre_tokenize_worker(chunk: bytes, special_tokens: list[bytes]) -> {tuple:int
             word_freq[tuple(bytes([b]) for b in word)] += 1
     return word_freq
 
-def get_pair_counts(word_freqs):
+def get_pair_counts(word_freqs_items):
     pair_counts = Counter()
+    pair_map = {}
 
-    for word, freq in word_freqs.items():
+    for i in range(len(word_freqs_items)):
+        word = word_freqs_items[i][0]
+        freq = word_freqs_items[i][1]
         for a, b in zip(word, word[1:]):
             pair_counts[(a, b)] += freq
+            wd = pair_map.get((a, b), [])
+            wd.append(i)
+            pair_map[(a, b)] = wd
 
-    return pair_counts
+    return pair_counts, pair_map
 
-def __merge_word(word: tuple[bytes, ...], pair: tuple[bytes, bytes], freq: int, pair_counts: Counter) -> tuple[bytes, ...]:
+def __merge_word(word_freqs_items, idx, pair: tuple[bytes, bytes], pair_counts: Counter, pair_map: dict[tuple[bytes, bytes], list[int]]) -> tuple[bytes, ...]:
     merged = []
+    word = word_freqs_items[idx][0]
+    freq = word_freqs_items[idx][1]
     i = 0
     del pair_counts[pair]
     while i < len(word):
@@ -36,9 +44,20 @@ def __merge_word(word: tuple[bytes, ...], pair: tuple[bytes, bytes], freq: int, 
             if i + 2 < len(word):
                 pair_counts[(word[i]+ word[i + 1], word[i + 2])] += freq
                 pair_counts[(word[i+1], word[i + 2])] -= freq
+                if pair_counts[(word[i+1], word[i + 2])] == 0:
+                    del pair_map[(word[i+1], word[i + 2])]
+                wd = pair_map.get((word[i]+ word[i + 1], word[i + 2]), [])
+                wd.append(idx)
+                pair_map[(word[i]+ word[i + 1], word[i + 2])] = wd
+
             if i > 0:
                 pair_counts[(word[i-1], word[i] + word[i + 1])] += freq
                 pair_counts[(word[i-1], word[i])] -= freq
+                if pair_counts[(word[i-1], word[i])] == 0:
+                    del pair_map[(word[i-1], word[i])]
+                wd = pair_map.get((word[i-1], word[i] + word[i + 1]), [])
+                wd.append(idx)
+                pair_map[(word[i-1], word[i] + word[i + 1])] = wd
             i += 2
         else:
             merged.append(word[i])
@@ -46,14 +65,14 @@ def __merge_word(word: tuple[bytes, ...], pair: tuple[bytes, bytes], freq: int, 
 
     return tuple(merged)
 
-def apply_merge(word_freq, pair, pair_counts):
-    new_word_freq = Counter()
+def apply_merge(word_freqs_items, pair, pair_counts, pair_map):
+    words_idx = pair_map[pair]
+    for idx in words_idx:
+        word = word_freqs_items[idx][0]
+        freq = word_freqs_items[idx][1]
+        new_word = __merge_word(word_freqs_items, idx, pair, pair_counts, pair_map)
+        word_freqs_items[idx] = (new_word, freq)
 
-    for word, freq in word_freq.items():
-        new_word = __merge_word(word, pair, freq, pair_counts)
-        new_word_freq[new_word] += freq
-
-    return new_word_freq
 
 def __iter_chunks(input_path, boundaries, special_tokens_bytes):
     with open(input_path, "rb") as f:
@@ -77,6 +96,7 @@ def train_bpe(
     special_tokens: list[str],
     **kwargs,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    start_time = time.perf_counter()
     initial_vocab_size = 256 + len(special_tokens)
     num_merges = vocab_size - initial_vocab_size
     special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
@@ -100,7 +120,8 @@ def train_bpe(
     word_freqs.update(total_counter)
     #print(f"word_freqs sample: {list(word_freqs.items())[:2]}")
 
-    pair_counts = get_pair_counts(word_freqs)
+    word_freqs_items = list(word_freqs.items())
+    pair_counts, pair_map = get_pair_counts(word_freqs_items)
     #print(f"pair_counts[:2]: {list(pair_counts.items())[:2]}")
     #best_pair =  max( pair_counts.items(),key=lambda item: (item[1], item[0]))[0]
     #print(f"best_pair: {best_pair}")
@@ -111,9 +132,11 @@ def train_bpe(
     }
     vocab[256] = b"<|endoftext|>"
     merges = []
+    print(f"pre-tokenization time: {time.perf_counter() - start_time}")
     while len(merges) < num_merges:
-        #pair_counts = get_pair_counts(word_freqs)
         
+        if len(merges) % 500 == 0:
+            print(f"merges len: {len(merges)} and time consumed: {time.perf_counter() - start_time}")
 
         if not pair_counts:
             break
@@ -123,7 +146,7 @@ def train_bpe(
 
         merges.append(best_pair)
         vocab[len(vocab)] = best_pair[0] + best_pair[1]
-        word_freqs = apply_merge(word_freqs, best_pair, pair_counts)
+        apply_merge(word_freqs_items, best_pair, pair_counts, pair_map)
 
     return vocab, merges
          
