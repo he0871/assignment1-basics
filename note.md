@@ -124,3 +124,7 @@ def apply_merge(word_freq, pair, pair_counts):
 
 Merge loop (main proc) --> 21%
 Pretokenization (workers) --> ~38% combined across 10 workers
+
+
+# before optimize merge
+8980 s

@@ -7,3 +7,8 @@ encode these sampled documents into integer IDs. What is each tokenizer’s comp
 tokenizers: 10k
 data: TinyStoriesV2-GPT4-train_subset.txt (10 documents)
 ids length: 1943, text length: 7552, compression ratio: 0.2572828389830508
+
+2. owt
+tokenizers: 32k
+data: owt_train_subset.txt (10 documents)
+ids length: 8583, text length: 31604, compression ratio: 0.2715795468927984
