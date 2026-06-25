@@ -1,6 +1,7 @@
 import regex as re
 from collections.abc import Iterable
 import json
+import ast
 
 class BPETokenizer:
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
@@ -105,10 +106,13 @@ class BPETokenizer:
         except UnicodeDecodeError:
             return ""
     
-    def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
+    def from_files(self, vocab_filepath, merges_filepath, special_tokens=["<|endoftext|>"]):
         with open(vocab_filepath, "r") as f:
-            self.vocab = json.load(f)
+            vocab = ast.literal_eval(f.read())
         with open(merges_filepath, "r") as f:
-            self.merges = json.load(f)
+            merges = ast.literal_eval(f.read())
+        self.__init__(vocab, merges, special_tokens)
+        return self
+
 
         
