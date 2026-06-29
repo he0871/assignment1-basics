@@ -15,6 +15,7 @@ import cs336_basics.models.worker as worker
 import cs336_basics.models.AdamW as AdamW
 import cs336_basics.models.bpe_tokenizer as bpe_tokenizer
 import cs336_basics.models.train_bpe as train_bpe
+import cs336_basics.models.checkpoint_util as checkpoint_util
 
 def run_linear(
     d_in: int,
@@ -521,7 +522,7 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    return checkpoint_util.save_checkpoint(model, optimizer, iteration, out)
 
 
 def run_load_checkpoint(
@@ -542,7 +543,7 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    return checkpoint_util.load_checkpoint(src, model, optimizer)
 
 
 def get_tokenizer(

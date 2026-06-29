@@ -19,6 +19,8 @@ lib64/
 parts/
 sdist/
 var/
+data/
+cs336_basics/experiments/
 wheels/
 share/python-wheels/
 *.egg-info/
