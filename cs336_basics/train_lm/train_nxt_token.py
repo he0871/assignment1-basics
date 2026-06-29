@@ -1,5 +1,6 @@
 import cs336_basics.models.transformer as transformer
-import cs336_basics.models.worker as worker
+import cs336_basics.models.worker as worker 
+import cs336_basics.models.AdamW as AdamW
 import numpy as np
 import torch
 import math
@@ -110,6 +111,7 @@ if __name__ == "__main__":
     d_ff=d_ff,
     device=device,
 )
+    optimizer = AdamW.adamw(weights.values(), lr=1e-3)
 
     dataset = np.memmap(
     "data/tinystories_train_encoded.txt",
@@ -150,7 +152,12 @@ for start in range(0, len(dataset), chunk_tokens):
             weights,
             x,
         )
-    print(logits.shape)
+    #logits is (batch_size, sequence_length, vocab_size)
+    #print(logits.shape)
+    loss = worker.cross_entropy(logits.view(-1, vocab_size), y.view(-1))
+    print(loss)
+    loss.backward()
+    optimizer.step()
     """
     with open("data/tinystories_train_encoded.txt", "rb") as f:
         text = f.read(load_size)
