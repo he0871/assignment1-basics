@@ -84,7 +84,7 @@ def multihead_self_attention(
     V = rearrange(V, " ... seq (head d_head) -> ... head seq d_head", head=num_heads)
 
     mask = torch.triu(
-        torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool),
+        torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool, device=Q.device),
         diagonal=1
     )
     #mask = rearrange(mask, "seq seq -> seq 1 seq 1")
@@ -203,7 +203,7 @@ def multihead_self_attention_with_rope(
 
 
     mask = torch.triu(
-        torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool),
+        torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool, device=Q.device),
         diagonal=1
     )
 
@@ -228,4 +228,3 @@ def multihead_self_attention_with_rope(
     #print(attn_scores)
     attn_scores = rearrange(attn_scores, "... head seq d_head -> ... seq (head d_head)")
     return  attn_scores @ o_proj_weight.T
-    

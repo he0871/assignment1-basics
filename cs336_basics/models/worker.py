@@ -29,7 +29,7 @@ def cross_entropy(
 ) -> Float[Tensor, ""]:
 
     labels = inputs[
-        torch.arange(inputs.shape[0]),
+        torch.arange(inputs.shape[0], device=inputs.device),
         targets
     ]
     max_items = torch.max(inputs, dim=-1, keepdim=True).values

@@ -1,10 +1,13 @@
 import cs336_basics.models.transformer as transformer
 import cs336_basics.models.worker as worker 
 import cs336_basics.models.AdamW as AdamW
+import cs336_basics.models.checkpoint_util as checkpoint_util
 import numpy as np
 import torch
 import math
-
+import matplotlib.pyplot as plt
+import yaml
+import time
 
 def init_linear_weight(out_features, in_features, device=None, dtype=None):
     w = torch.empty(out_features, in_features, device=device, dtype=dtype)
@@ -93,16 +96,22 @@ def init_transformer_lm_weights(
     return weights
 
 if __name__ == "__main__":
-    batch_size = 4
-    context_length = 10
-    device = "cpu"
-    load_size = 1000
-    vocab_size = 10000 # 10k vocab size for tiny stories, 32k vocab size for openwebtext
-    d_model = 64
-    num_layers = 3
-    num_heads = 4
-    d_ff = 128
-    rope_theta = 10000.0
+    with open("cs336_basics/train_lm/hyconfig.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    batch_size = config["batch_size"]
+    context_length = config["context_length"]
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Using device: {device}")
+    #device = config["device"]
+    load_size = config["load_size"]
+    vocab_size = config["vocab_size"]
+    d_model = config["d_model"]
+    num_layers = config["num_layers"]
+    num_heads = config["num_heads"]
+    d_ff = config["d_ff"]
+    rope_theta = config["rope_theta"]
+    learning_rate = float(config["learning_rate"])
+
     weights = init_transformer_lm_weights(
     vocab_size=vocab_size,
     d_model=d_model,
@@ -111,7 +120,7 @@ if __name__ == "__main__":
     d_ff=d_ff,
     device=device,
 )
-    optimizer = AdamW.adamw(weights.values(), lr=1e-3)
+    optimizer = AdamW.adamw(weights.values(), lr=learning_rate)
 
     dataset = np.memmap(
     "data/tinystories_train_encoded.txt",
@@ -119,6 +128,10 @@ if __name__ == "__main__":
     mode="r",
     )
 chunk_tokens = 1_000_000
+
+losses = []
+
+start_time = time.time()
 for start in range(0, len(dataset), chunk_tokens):
     chunk = dataset[start:start + chunk_tokens]
 
@@ -156,13 +169,16 @@ for start in range(0, len(dataset), chunk_tokens):
     #print(logits.shape)
     loss = worker.cross_entropy(logits.view(-1, vocab_size), y.view(-1))
     print(loss)
+    losses.append(loss.item())
     loss.backward()
+    worker.gradient_clipping(weights.values(), 1.0)
     optimizer.step()
-    """
-    with open("data/tinystories_train_encoded.txt", "rb") as f:
-        text = f.read(load_size)
-        dataset =text.decode("uint16")
-        print(dataset)
-        batches = worker.get_batch(text, batch_size, context_length, device)
-        transformer.transformer_lm(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, weights, batches)
-    """
+    optimizer.zero_grad()
+
+plt.plot(losses)
+plt.savefig("losses.png")
+
+checkpoint_util.save_checkpoint(weights, optimizer, 0, "cs336_basics/train_lm/tingStories.pt")
+    
+end_time = time.time()
+print(f"Time taken: {end_time - start_time} seconds")

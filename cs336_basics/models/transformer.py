@@ -32,7 +32,7 @@ def transformer_block(
         v_proj_weight=weights["attn.v_proj.weight"],
         o_proj_weight=weights["attn.output_proj.weight"],
         in_features=norm_in_features,
-        token_positions=torch.arange(in_features.shape[1]),
+        token_positions=torch.arange(in_features.shape[1], device=in_features.device),
     )
 
     in_features = x_attn + in_features # shape: (batch, sequence_length, d_model)
