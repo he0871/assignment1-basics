@@ -12,11 +12,12 @@ def softmax(x: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
     return exp_x / torch.sum(exp_x, dim=dim, keepdim=True)
 
 class Linear(nn.Module):
-    def __init__(self, d_in: int, d_out: int):
+    def __init__(self, d_in: int, d_out: int, device: str = "cpu", dtype: torch.dtype = torch.float32):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
-        self.weight = nn.Parameter(torch.empty(d_out, d_in))
+        self.weight = nn.Parameter(torch.empty(d_out, d_in, device=device, dtype=dtype))
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         
     def forward(self, in_features: Float[Tensor, " ... d_in"]) -> Float[Tensor, " ... d_out"]:
         return in_features @ rearrange(self.weight, "d_out d_in -> d_in d_out")
@@ -25,11 +26,12 @@ class Linear(nn.Module):
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
 class Embedding(nn.Module):
-    def __init__(self, vocab_size: int, d_model: int):
+    def __init__(self, vocab_size: int, d_model: int, device: str = "cpu", dtype: torch.dtype = torch.float32):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
-        self.weight = nn.Parameter(torch.empty(vocab_size, d_model))
+        self.weight = nn.Parameter(torch.empty(vocab_size, d_model, device=device, dtype=dtype))
+        nn.init.kaiming_uniform_(self.weight, nonlinearity="linear")
         
     def forward(self, token_ids: Int[Tensor, " ..."]) -> Float[Tensor, " ... d_model"]:
         return self.weight[token_ids] 
@@ -39,14 +41,14 @@ def silu(x: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     return x / (1 + torch.exp(-x))
 
 class SwiGLU(nn.Module):
-    def __init__(self, d_model: int, d_ff: int):
+    def __init__(self, d_model: int, d_ff: int, device: str = "cpu", dtype: torch.dtype = torch.float32):
         super().__init__()
         self.d_model = d_model
         self.d_ff = d_ff
 
-        self.w1 = Linear(d_model, d_ff)
-        self.w2 = Linear(d_ff, d_model)
-        self.w3 = Linear(d_model, d_ff)
+        self.w1 = Linear(d_model, d_ff, device, dtype)
+        self.w2 = Linear(d_ff, d_model, device, dtype)
+        self.w3 = Linear(d_model, d_ff, device, dtype)
 
     def forward(self, in_features: Float[Tensor, " ... d_model"]) -> Float[Tensor, " ... d_model"]:
         #          [... dff]  [... dff]
@@ -71,14 +73,14 @@ def scaled_dot_product_attention(
     return scores @ V
         
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model: int, num_heads: int):
+    def __init__(self, d_model: int, num_heads: int, device: str = "cpu", dtype: torch.dtype = torch.float32):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
-        self.q_proj = Linear(d_model, d_model)
-        self.k_proj = Linear(d_model, d_model)
-        self.v_proj = Linear(d_model, d_model)
-        self.output_proj = Linear(d_model, d_model)
+        self.q_proj = Linear(d_model, d_model, device, dtype)
+        self.k_proj = Linear(d_model, d_model, device, dtype)
+        self.v_proj = Linear(d_model, d_model, device, dtype)
+        self.output_proj = Linear(d_model, d_model, device, dtype)
     
     def forward(self, in_features: Float[Tensor, " ... sequence_length d_model"]) -> Float[Tensor, " ... sequence_length d_model"]:
         Q = self.q_proj(in_features)
@@ -157,28 +159,28 @@ def rope(
     return out
 
 class RMSNorm(nn.Module):
-    def __init__(self, d_model: int, eps: float = 1e-5):
+    def __init__(self, d_model: int, eps: float = 1e-5, device: str = "cpu", dtype: torch.dtype = torch.float32):
         super().__init__()
         self.d_model = d_model
         self.eps = eps
-        self.weight = nn.Parameter(torch.ones(d_model))
+        self.weight = nn.Parameter(torch.ones(d_model, device=device, dtype=dtype))
 
     def forward(self, in_features: Float[Tensor, " ... d_model"]) -> Float[Tensor, " ... d_model"]:
         return in_features / torch.sqrt(torch.mean(in_features**2, dim=-1, keepdim=True) + self.eps) * self.weight
 
 
 class MultiHeadAttentionWithRope(nn.Module):
-    def __init__(self, d_model: int, num_heads: int, max_seq_len: int, theta: float):
+    def __init__(self, d_model: int, num_heads: int, max_seq_len: int, theta: float, device: str = "cpu", dtype: torch.dtype = torch.float32):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
         self.max_seq_len = max_seq_len
         self.theta = theta
         
-        self.q_proj = Linear(d_model, d_model)
-        self.k_proj = Linear(d_model, d_model)
-        self.v_proj = Linear(d_model, d_model)
-        self.output_proj = Linear(d_model, d_model)
+        self.q_proj = Linear(d_model, d_model, device, dtype)
+        self.k_proj = Linear(d_model, d_model, device, dtype)
+        self.v_proj = Linear(d_model, d_model, device, dtype)
+        self.output_proj = Linear(d_model, d_model, device, dtype)
     
     def forward(self, in_features: Float[Tensor, " ... sequence_length d_model"], token_positions: Int[Tensor, " ... sequence_length"]) -> Float[Tensor, " ... sequence_length d_model"]:
         Q = self.q_proj(in_features)

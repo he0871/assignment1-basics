@@ -16,10 +16,10 @@ class TransformerBlock(nn.Module):
         dtype: torch.dtype = torch.float32):
 
         super().__init__()
-        self.ln1 = basic.RMSNorm(d_model)
-        self.attn = basic.MultiHeadAttentionWithRope(d_model, num_heads, max_seq_len, rope_theta)
-        self.ln2 = basic.RMSNorm(d_model)
-        self.ffn = basic.SwiGLU(d_model, d_ff)
+        self.ln1 = basic.RMSNorm(d_model, device=device, dtype=dtype)
+        self.attn = basic.MultiHeadAttentionWithRope(d_model, num_heads, max_seq_len, rope_theta, device=device, dtype=dtype)
+        self.ln2 = basic.RMSNorm(d_model, device=device, dtype=dtype)
+        self.ffn = basic.SwiGLU(d_model, d_ff, device=device, dtype=dtype)
 
         self.d_model = d_model
         self.d_ff = d_ff

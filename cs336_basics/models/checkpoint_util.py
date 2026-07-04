@@ -10,7 +10,7 @@ def save_checkpoint(
     out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
 ) -> None:
     checkpoint = {
-        "model":  model if isinstance(model, dict) else model.state_dict(),
+        "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "iteration": iteration,
     }

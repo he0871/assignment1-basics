@@ -28,7 +28,7 @@ class TransformerLM(nn.Module):
         self.rope_theta = rope_theta
 
         # ===== Embedding =====
-        self.token_embeddings = basic.Embedding(vocab_size, d_model)
+        self.token_embeddings = basic.Embedding(vocab_size, d_model, device, dtype)
 
         # ===== Transformer layers =====
         self.layers = nn.ModuleList()
@@ -39,10 +39,10 @@ class TransformerLM(nn.Module):
             )
 
         # ===== Final LayerNorm =====
-        self.ln_final = basic.RMSNorm(d_model)
+        self.ln_final = basic.RMSNorm(d_model, device=device, dtype=dtype)
 
         # ===== LM Head =====
-        self.lm_head = basic.Linear(d_model, vocab_size)
+        self.lm_head = basic.Linear(d_model, vocab_size, device, dtype)
 
         #self.reset_parameters()
 
