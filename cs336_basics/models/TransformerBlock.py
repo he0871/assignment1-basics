@@ -28,11 +28,11 @@ class TransformerBlock(nn.Module):
         self.num_heads = num_heads
 
     def forward(self, in_features):
-        x = self.ln1(in_features)
-        x_attn = self.attn(x, token_positions=torch.arange(in_features.shape[1], device=in_features.device))
-        x = x_attn + in_features 
+        x_1 = self.ln1(in_features)
+        x_attn = self.attn(x_1, token_positions=torch.arange(in_features.shape[1], device=in_features.device))
+        x_1 = x_attn + in_features 
 
-        x = self.ln2(x)
-        x = self.ffn(x)
-        x = x + in_features 
-        return x
+        x_2 = self.ln2(x_1)
+        x_2 = self.ffn(x_2)
+        x_2 = x_2 + x_1 
+        return x_2

@@ -29,10 +29,10 @@ class Embedding(nn.Module):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
-        self.weights = nn.Parameter(torch.empty(vocab_size, d_model))
+        self.weight = nn.Parameter(torch.empty(vocab_size, d_model))
         
     def forward(self, token_ids: Int[Tensor, " ..."]) -> Float[Tensor, " ... d_model"]:
-        return self.weights[token_ids] 
+        return self.weight[token_ids] 
 
 
 def silu(x: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -43,20 +43,16 @@ class SwiGLU(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.d_ff = d_ff
-        #self.w1 = nn.Parameter(torch.empty(d_ff, d_model))
-        #self.w2 = nn.Parameter(torch.empty(d_model, d_ff))
-        #self.w3 = nn.Parameter(torch.empty(d_ff, d_model))
 
-        self.w1 = Linear( d_model, d_ff)
+        self.w1 = Linear(d_model, d_ff)
         self.w2 = Linear(d_ff, d_model)
         self.w3 = Linear(d_model, d_ff)
 
     def forward(self, in_features: Float[Tensor, " ... d_model"]) -> Float[Tensor, " ... d_model"]:
-        w_g = self.w1
-        w_v = self.w3
-        w_o = self.w2
-        gated = silu(in_features @ rearrange(w_g, "d_ff d_model -> d_model d_ff")) * (in_features @ rearrange(w_v, "d_ff d_model -> d_model d_ff"))
-        return gated @ rearrange(w_o, "d_model d_ff -> d_ff d_model")
+        #          [... dff]  [... dff]
+        gated = silu(self.w1(in_features)) * (self.w3(in_features))
+        
+        return self.w2(gated)
 
 
 def scaled_dot_product_attention(
@@ -92,7 +88,7 @@ class MultiHeadAttention(nn.Module):
         K = rearrange(K, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
         V = rearrange(V, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
         mask = torch.triu(
-            torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool, device=self.q_proj.weights.device),
+            torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool, device=self.q_proj.weight.device),
             diagonal=1
        )
         attn_scores = scaled_dot_product_attention(Q, K, V, ~mask)
