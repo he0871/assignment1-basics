@@ -21,7 +21,6 @@ def transformer_block(
         in_features=in_features,
     )
 
-    
     x_attn = basic.multihead_self_attention_with_rope( # shape: (batch, sequence_length, d_model)
         d_model=d_model,
         num_heads=num_heads,

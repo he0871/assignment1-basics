@@ -3,6 +3,7 @@ import torch.nn as nn
 from jaxtyping import Bool, Float, Int
 from einops import rearrange, einsum
 from torch import Tensor
+import math
 
 def softmax(x: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
     x_shifted = x - torch.max(x, dim=dim, keepdim=True).values
@@ -10,44 +11,52 @@ def softmax(x: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
     exp_x = torch.exp(x_shifted)
     return exp_x / torch.sum(exp_x, dim=dim, keepdim=True)
 
-def linear(
-    d_in: int,
-    d_out: int,
-    weights: Float[Tensor, " d_out d_in"],
-    in_features: Float[Tensor, " ... d_in"],
-) -> Float[Tensor, " ... d_out"]:
+class Linear(nn.Module):
+    def __init__(self, d_in: int, d_out: int):
+        super().__init__()
+        self.d_in = d_in
+        self.d_out = d_out
+        self.weight = nn.Parameter(torch.empty(d_out, d_in))
+        
+    def forward(self, in_features: Float[Tensor, " ... d_in"]) -> Float[Tensor, " ... d_out"]:
+        return in_features @ rearrange(self.weight, "d_out d_in -> d_in d_out")
 
-    return in_features @ rearrange(weights, "d_out d_in -> d_in d_out")
+    def reset_parameters(self):
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
+class Embedding(nn.Module):
+    def __init__(self, vocab_size: int, d_model: int):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.d_model = d_model
+        self.weights = nn.Parameter(torch.empty(vocab_size, d_model))
+        
+    def forward(self, token_ids: Int[Tensor, " ..."]) -> Float[Tensor, " ... d_model"]:
+        return self.weights[token_ids] 
 
-def embedding(
-    vocab_size: int,
-    d_model: int,
-    weights: Float[Tensor, " vocab_size d_model"],
-    token_ids: Int[Tensor, " ..."],
-) -> Float[Tensor, " ... d_model"]:
-    return weights[token_ids]
 
 def silu(x: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     return x / (1 + torch.exp(-x))
 
-def swiglu(
-    d_model: int,
-    d_ff: int,
-    w1_weight: Float[Tensor, " d_ff d_model"],
-    w2_weight: Float[Tensor, " d_model d_ff"],
-    w3_weight: Float[Tensor, " d_ff d_model"],
-    in_features: Float[Tensor, " ... d_model"],
-) -> Float[Tensor, " ... d_model"]:
-    # SwiGLU(x)=(SiLU(xWg​))⊙(xWv​)
-    # Output=((SiLU(xWg​))⊙(xWv​))Wo​
-    w_g = w1_weight
-    w_v = w3_weight
-    w_o = w2_weight
-    
-    
-    gated = silu(in_features @ rearrange(w_g, "d_ff d_model -> d_model d_ff")) * (in_features @ rearrange(w_v, "d_ff d_model -> d_model d_ff"))
-    return gated @ rearrange(w_o, "d_model d_ff -> d_ff d_model")
+class SwiGLU(nn.Module):
+    def __init__(self, d_model: int, d_ff: int):
+        super().__init__()
+        self.d_model = d_model
+        self.d_ff = d_ff
+        #self.w1 = nn.Parameter(torch.empty(d_ff, d_model))
+        #self.w2 = nn.Parameter(torch.empty(d_model, d_ff))
+        #self.w3 = nn.Parameter(torch.empty(d_ff, d_model))
+
+        self.w1 = Linear( d_model, d_ff)
+        self.w2 = Linear(d_ff, d_model)
+        self.w3 = Linear(d_model, d_ff)
+
+    def forward(self, in_features: Float[Tensor, " ... d_model"]) -> Float[Tensor, " ... d_model"]:
+        w_g = self.w1
+        w_v = self.w3
+        w_o = self.w2
+        gated = silu(in_features @ rearrange(w_g, "d_ff d_model -> d_model d_ff")) * (in_features @ rearrange(w_v, "d_ff d_model -> d_model d_ff"))
+        return gated @ rearrange(w_o, "d_model d_ff -> d_ff d_model")
 
 
 def scaled_dot_product_attention(
@@ -64,38 +73,31 @@ def scaled_dot_product_attention(
         scores = scores.masked_fill(~mask, -float('inf'))
     scores = softmax(scores, dim=-1)
     return scores @ V
-
-
-def multihead_self_attention(
-    d_model: int,
-    num_heads: int,
-    q_proj_weight: Float[Tensor, " d_model d_model"],
-    k_proj_weight: Float[Tensor, " d_model d_model"],
-    v_proj_weight: Float[Tensor, " d_model d_model"],
-    o_proj_weight: Float[Tensor, " d_model d_model"],
-    in_features: Float[Tensor, " ... sequence_length d_model"],
-) -> Float[Tensor, " ... sequence_length d_model"]:
-    Q = in_features @ q_proj_weight.T # shape: (batch_size, sequence_length, d_model)
-    K = in_features @ k_proj_weight.T # shape: (batch_size, sequence_length, d_model)
-    V = in_features @ v_proj_weight.T # shape: (batch_size, sequence_length, d_model)
-
-    Q = rearrange(Q, " ... seq (head d_head) -> ... head seq d_head", head=num_heads)
-    K = rearrange(K, " ... seq (head d_head) -> ... head seq d_head", head=num_heads)
-    V = rearrange(V, " ... seq (head d_head) -> ... head seq d_head", head=num_heads)
-
-    mask = torch.triu(
-        torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool, device=Q.device),
-        diagonal=1
-    )
-    #mask = rearrange(mask, "seq seq -> seq 1 seq 1")
-    #print(mask)
-    #print(f"Q shape: {Q.shape}")
-    attn_scores = scaled_dot_product_attention(Q, K, V, ~mask)
-    #attn_scores = softmax(attn_scores, dim=-1)
-    #print(attn_scores)
-    attn_scores = rearrange(attn_scores, "... head seq d_head -> ... seq (head d_head)")
-    return  attn_scores @ o_proj_weight.T
-
+        
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model: int, num_heads: int):
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.q_proj = Linear(d_model, d_model)
+        self.k_proj = Linear(d_model, d_model)
+        self.v_proj = Linear(d_model, d_model)
+        self.output_proj = Linear(d_model, d_model)
+    
+    def forward(self, in_features: Float[Tensor, " ... sequence_length d_model"]) -> Float[Tensor, " ... sequence_length d_model"]:
+        Q = self.q_proj(in_features)
+        K = self.k_proj(in_features) 
+        V = self.v_proj(in_features)
+        Q = rearrange(Q, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
+        K = rearrange(K, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
+        V = rearrange(V, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
+        mask = torch.triu(
+            torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool, device=self.q_proj.weights.device),
+            diagonal=1
+       )
+        attn_scores = scaled_dot_product_attention(Q, K, V, ~mask)
+        attn_scores = rearrange(attn_scores, "... head seq d_head -> ... seq (head d_head)")
+        return self.output_proj(attn_scores)
 
 def rope(
     d_k: int,
@@ -158,28 +160,61 @@ def rope(
 
     return out
 
-def rmsnorm(
-    d_model: int,
-    weights: Float[Tensor, " d_model"],
-    in_features: Float[Tensor, " ... d_model"],
-    eps: float = 1e-5,
-) -> Float[Tensor, " ... d_model"]:
-    """Given the weights of a RMSNorm affine transform,
-    return the output of running RMSNorm on the input features.
+class RMSNorm(nn.Module):
+    def __init__(self, d_model: int, eps: float = 1e-5):
+        super().__init__()
+        self.d_model = d_model
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(d_model))
 
-    Args:
-        d_model (int): The dimensionality of the RMSNorm input.
-        eps: (float): A value added to the denominator for numerical stability.
-        weights (Float[Tensor, "d_model"]): RMSNorm weights.
-        in_features (Float[Tensor, "... d_model"]): Input features to run RMSNorm on. Can have arbitrary leading
-            dimensions.
+    def forward(self, in_features: Float[Tensor, " ... d_model"]) -> Float[Tensor, " ... d_model"]:
+        return in_features / torch.sqrt(torch.mean(in_features**2, dim=-1, keepdim=True) + self.eps) * self.weight
 
-    Returns:
-        Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
-        RMSNorm of the `in_features`.
-    """
-    return in_features / torch.sqrt(torch.mean(in_features**2, dim=-1, keepdim=True) + eps) * weights
 
+class MultiHeadAttentionWithRope(nn.Module):
+    def __init__(self, d_model: int, num_heads: int, max_seq_len: int, theta: float):
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.max_seq_len = max_seq_len
+        self.theta = theta
+        
+        self.q_proj = Linear(d_model, d_model)
+        self.k_proj = Linear(d_model, d_model)
+        self.v_proj = Linear(d_model, d_model)
+        self.output_proj = Linear(d_model, d_model)
+    
+    def forward(self, in_features: Float[Tensor, " ... sequence_length d_model"], token_positions: Int[Tensor, " ... sequence_length"]) -> Float[Tensor, " ... sequence_length d_model"]:
+        Q = self.q_proj(in_features)
+        K = self.k_proj(in_features)
+        V = self.v_proj(in_features)
+        Q = rearrange(Q, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
+        K = rearrange(K, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
+        V = rearrange(V, " ... seq (head d_head) -> ... head seq d_head", head=self.num_heads)
+        mask = torch.triu(
+            torch.ones(Q.shape[-2], Q.shape[-2], dtype=torch.bool, device=Q.device),
+            diagonal=1
+        )
+        rope_Q = rope(
+            d_k=self.d_model // self.num_heads,
+            theta=self.theta,
+            max_seq_len=self.max_seq_len,
+            in_query_or_key=Q,
+            token_positions=token_positions,
+        )
+        rope_K = rope(
+            d_k=self.d_model // self.num_heads,
+            theta=self.theta,
+            max_seq_len=self.max_seq_len,
+            in_query_or_key=K,
+            token_positions=token_positions,
+        )
+        attn_scores = scaled_dot_product_attention(rope_Q, rope_K, V, ~mask)
+        attn_scores = rearrange(attn_scores, "... head seq d_head -> ... seq (head d_head)")
+        return self.output_proj(attn_scores)
+
+
+        
 
 def multihead_self_attention_with_rope(
     d_model: int,
